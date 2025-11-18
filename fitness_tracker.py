@@ -3,11 +3,16 @@ import os
 from datetime import datetime
 from typing import List, Dict
 
+from urllib.request import urlopen, Request
+from urllib.parse import urlencode
+import urllib.error
+
 DATA_FILE = "workouts.json"
 TYPES = ["Running", "Cycling", "Strength", "Yoga", "Other"]
 
+# Base URL for Motivational Quote Generator microservice
+QUOTE_SERVICE_BASE = "http://localhost:8000/v1"
 
-# -Utility: Storage
 
 def load_all() -> List[Dict]:
     """Load all workouts from the JSON file (or return empty list)."""
@@ -163,6 +168,46 @@ def filter_by_type(items: List[Dict]) -> None:
         print(f"{date:<20} {typ:<10} {str(dur)+' min':<10} {cal_txt:<10}")
     print(f"\nCount: {len(filtered)}")
 
+def _http_get_json(path: str, params: Dict[str, str] | None = None) -> Dict:
+    """
+    Minimal GET JSON helper using urllib (no external deps).
+    Raises urllib.error.URLError / HTTPError on network/HTTP problems.
+    """
+    qs = f"?{urlencode(params)}" if params else ""
+    url = f"{QUOTE_SERVICE_BASE}{path}{qs}"
+    req = Request(url, headers={"Accept": "application/json"})
+    with urlopen(req, timeout=5) as resp:
+        data = resp.read().decode("utf-8")
+        return json.loads(data)
+
+
+def motivational_quote() -> None:
+    """
+    Calls the Motivational Quote Generator microservice and prints a quote.
+    """
+    print("\n=== Motivation ===")
+    cat = input("Optional category (press Enter to skip): ").strip()
+    params = {"category": cat} if cat else None
+
+    try:
+        data = _http_get_json("/quote", params=params)
+        print("\n“" + data.get("quote", "") + "”")
+        print(" — " + data.get("author", "Unknown"))
+        print(f"(category: {data.get('category','?')}, lang: {data.get('lang','?')})")
+    except urllib.error.HTTPError as e:
+        # Handle contract errors like 404 NOT_FOUND or 400 UNSUPPORTED_PARAMETER
+        try:
+            err_json = json.loads(e.read().decode("utf-8"))
+            msg = err_json.get("message", str(e))
+        except Exception:
+            msg = str(e)
+        print(f"\nCould not fetch a quote (HTTP {e.code}): {msg}")
+    except urllib.error.URLError as e:
+        print("\nCould not reach the quote service. Is it running on http://localhost:8000?")
+        print(f"Network error: {e.reason}")
+    except Exception as e:
+        print("\nUnexpected error while fetching quote:", e)
+
 
 # Menu main Loop
 
@@ -173,14 +218,14 @@ def main_menu():
         print("1) Add Workout")
         print("2) View History")
         print("3) Filter by Type")
-        print("4) Quit")
-        choice = input("Choose an option (1-4): ").strip()
+        print("4) Get Motivation")   # NEW
+        print("5) Quit")              # shifted
+        choice = input("Choose an option (1-5): ").strip()
 
         if choice == "1":
             add_workout()
         elif choice == "2":
             items = load_all()
-            # keep newest first each time
             items.sort(key=lambda r: r["occurredAt"], reverse=True)
             view_history(items)
         elif choice == "3":
@@ -188,10 +233,12 @@ def main_menu():
             items.sort(key=lambda r: r["occurredAt"], reverse=True)
             filter_by_type(items)
         elif choice == "4":
+            motivational_quote()      # NEW
+        elif choice == "5":
             print("Goodbye!")
             break
         else:
-            print("Please enter 1, 2, 3, or 4.")
+            print("Please enter 1, 2, 3, 4, or 5.")
 
 
 if __name__ == "__main__":
