@@ -1,0 +1,68 @@
+[
+  {
+    "occurredAt": "2025-11-18T00:15:37Z",
+    "type": "Running",
+    "durationMin": 4,
+    "calories": 5
+  },
+  {
+    "occurredAt": "2025-11-17T23:44:04Z",
+    "type": "Cycling",
+    "durationMin": 4,
+    "calories": null
+  },
+  {
+    "occurredAt": "2025-11-04T03:40:21Z",
+    "type": "Running",
+    "durationMin": 40,
+    "calories": 40
+  },
+  {
+    "occurredAt": "2025-11-04T03:39:51Z",
+    "type": "Running",
+    "durationMin": 30,
+    "calories": 30
+  },
+  {
+    "occurredAt": "2025-11-04T03:34:13Z",
+    "type": "Running",
+    "durationMin": 40,
+    "calories": 40
+  },
+  {
+    "occurredAt": "2025-11-04T03:33:45Z",
+    "type": "Running",
+    "durationMin": 30,
+    "calories": 30
+  },
+  {
+    "occurredAt": "2025-11-04T03:23:42Z",
+    "type": "Running",
+    "durationMin": 30,
+    "calories": 30
+  },
+  {
+    "occurredAt": "2025-11-04T03:23:05Z",
+    "type": "Other",
+    "durationMin": 5,
+    "calories": 5
+  },
+  {
+    "occurredAt": "2025-11-04T03:21:39Z",
+    "type": "Running",
+    "durationMin": 30,
+    "calories": 30
+  },
+  {
+    "occurredAt": "2025-11-04T03:07:04Z",
+    "type": "Strength",
+    "durationMin": 30,
+    "calories": 30
+  },
+  {
+    "occurredAt": "2025-11-04T01:58:23Z",
+    "type": "Strength",
+    "durationMin": 10,
+    "calories": 225
+  }
+]
