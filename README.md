@@ -6,12 +6,6 @@
 - Filter workouts by type (Running, Cycling, Strength, Yoga, Other)
 - Data is saved to workouts.json in the same folder (simple JSON list).
 
-### Inclusivity + Usability touches (kept simple for CLI):
-
--Clear, plain-language prompts and errors (IH #1, IH #3)
-- Explicit path via numbered menu (IH #6)
-- No color-only cues; all messages are textual
-
 ##Motivational Quote Generator Microservice
 
 This microservice returns motivational quotes over a simple REST API. This is a microservice that Sheryll Hernandez and I worked on together. 
