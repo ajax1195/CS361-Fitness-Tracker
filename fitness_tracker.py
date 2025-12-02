@@ -10,14 +10,15 @@ import urllib.error
 DATA_FILE = "workouts.json"
 TYPES = ["Running", "Cycling", "Strength", "Yoga", "Other"]
 
+# Microservice base URLs
 QUOTE_SERVICE_BASE = "http://localhost:8000/v1"
 OVERDUE_SERVICE_BASE = "http://localhost:8101/v1"
 WEEKLY_SERVICE_BASE = "http://localhost:8102/v1"
-DAILY_AGENDA_BASE = "http://localhost:5004"  # Sheryll's service
+DAILY_AGENDA_BASE = "http://localhost:5004"
 
 
 def load_all() -> List[Dict]:
-    """Load all workouts from the JSON file (or return empty list)."""
+    """Load all workouts from the JSON file"""
     if not os.path.exists(DATA_FILE):
         return []
     try:
@@ -37,26 +38,38 @@ def save_all(items: List[Dict]) -> None:
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(items, f, indent=2)
 
+
+# ---------- Helper for microservices ----------
+
 def _workouts_to_items(workouts: List[Dict]) -> List[Dict]:
+    """
+    Convert stored workouts into generic 'items' for the microservices.
+    """
     items: List[Dict] = []
     for idx, w in enumerate(workouts, start=1):
         occurred = w.get("occurredAt", "")
-        # derive YYYY-MM-DD from timestamp if possible
-        due_date = occurred[:10] if isinstance(occurred, str) and len(occurred) >= 10 else ""
+        # Prefer explicit dueDate otherwise derive from occurredAt if present
+        due = w.get("dueDate", "")
+        if not due and isinstance(occurred, str) and len(occurred) >= 10:
+            due = occurred[:10]
+
+        completed = bool(w.get("completed", True))  # default True for old records
+
         items.append(
             {
                 "id": str(idx),
                 "title": f"{w.get('type', 'Workout')} ({w.get('durationMin', 0)} min)",
                 "occurredAt": occurred,
+                "dueDate": due,
                 "durationMin": w.get("durationMin", 0),
                 "category": w.get("type", "Other"),
-                "dueDate": due_date,
-                "completed": True,
+                "completed": completed,
             }
         )
     return items
 
-# User Story 1: Add Workout
+
+# ---------- User Story 1: Add Workout ----------
 
 def add_workout() -> None:
     """Prompt the user for a workout and save it if valid."""
@@ -95,51 +108,71 @@ def add_workout() -> None:
             break
         print("Calories must be a whole number (e.g., 250) or left blank.")
 
+    # Due date set by the user
+    while True:
+        due_in = input("Date you want to complete this workout by (YYYY-MM-DD): ").strip()
+        try:
+            datetime.strptime(due_in, "%Y-%m-%d")
+            due_date = due_in
+            break
+        except ValueError:
+            print("Please enter a valid date in YYYY-MM-DD format (e.g., 2025-12-01).")
+
+    # Completed flag
+    done_in = input("Have you already completed this workout? (y/n, default n): ").strip().lower()
+    completed = done_in == "y"
+
     # Build record
     now_iso = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")  # UTC timestamp
     record = {
         "occurredAt": now_iso,
+        "dueDate": due_date,
         "type": wtype,
         "durationMin": duration,
-        "calories": calories
+        "calories": calories,
+        "completed": completed,
     }
 
     items = load_all()
     items.append(record)
-    # newest first
-    items.sort(key=lambda r: r["occurredAt"], reverse=True)
+    # newest first by creation time
+    items.sort(key=lambda r: r.get("occurredAt", ""), reverse=True)
     save_all(items)
 
     print("\nWorkout saved successfully!")
-    print(f"- Date (UTC): {now_iso}")
-    print(f"- Type:       {wtype}")
-    print(f"- Duration:   {duration} min")
-    print(f"- Calories:   {calories if calories is not None else '—'}")
+    print(f"- Logged (UTC): {now_iso}")
+    print(f"- Type:         {wtype}")
+    print(f"- Duration:     {duration} min")
+    print(f"- Due by:       {due_date}")
+    print(f"- Completed:    {'Yes' if completed else 'No'}")
+    print(f"- Calories:     {calories if calories is not None else '—'}")
 
 
-# User Story 2: View Workout History
+# ---------- User Story 2: View Workout History ----------
 
 def view_history(items: List[Dict]) -> None:
-    """Print all workouts (newest first) or a friendly empty state."""
+    """Print all workouts or a friendly empty state."""
     print("\n=== Workout History ===")
     if not items:
         print("No workouts yet. Use 'Add Workout' to create your first entry.")
         return
 
     print(f"Total workouts: {len(items)}")
-    print("-" * 60)
-    print(f"{'Date (UTC)':<20} {'Type':<10} {'Duration':<10} {'Calories':<10}")
-    print("-" * 60)
+    print("-" * 80)
+    print(f"{'Logged (UTC)':<20} {'Due Date':<12} {'Type':<10} {'Duration':<10} {'Status':<10} {'Calories':<10}")
+    print("-" * 80)
     for r in items:
-        date = r.get("occurredAt", "")
+        logged = r.get("occurredAt", "")
+        due = r.get("dueDate", "")
         typ = r.get("type", "")
         dur = r.get("durationMin", 0)
         cal = r.get("calories", None)
         cal_txt = str(cal) if cal is not None else "—"
-        print(f"{date:<20} {typ:<10} {str(dur)+' min':<10} {cal_txt:<10}")
+        status = "Done" if r.get("completed", True) else "Planned"
+        print(f"{logged:<20} {due:<12} {typ:<10} {str(dur)+' min':<10} {status:<10} {cal_txt:<10}")
 
 
-# User Story 3: Filter by Type
+# ---------- User Story 3: Filter by Type ----------
 
 def filter_by_type(items: List[Dict]) -> None:
     """Let the user choose a type and show only those workouts."""
@@ -176,21 +209,26 @@ def filter_by_type(items: List[Dict]) -> None:
         print("No workouts match this filter.")
         return
 
-    print("-" * 60)
-    print(f"{'Date (UTC)':<20} {'Type':<10} {'Duration':<10} {'Calories':<10}")
-    print("-" * 60)
+    print("-" * 80)
+    print(f"{'Logged (UTC)':<20} {'Due Date':<12} {'Type':<10} {'Duration':<10} {'Status':<10} {'Calories':<10}")
+    print("-" * 80)
     for r in filtered:
-        date = r.get("occurredAt", "")
+        logged = r.get("occurredAt", "")
+        due = r.get("dueDate", "")
         typ = r.get("type", "")
         dur = r.get("durationMin", 0)
         cal = r.get("calories", None)
         cal_txt = str(cal) if cal is not None else "—"
-        print(f"{date:<20} {typ:<10} {str(dur)+' min':<10} {cal_txt:<10}")
+        status = "Done" if r.get("completed", True) else "Planned"
+        print(f"{logged:<20} {due:<12} {typ:<10} {str(dur)+' min':<10} {status:<10} {cal_txt:<10}")
     print(f"\nCount: {len(filtered)}")
+
+
+# ---------- HTTP helpers ----------
 
 def _http_get_json(path: str, params: Dict[str, str] | None = None) -> Dict:
     """
-    Minimal GET JSON helper using urllib (no external deps).
+    Minimal GET JSON helper using urllib
     Raises urllib.error.URLError / HTTPError on network/HTTP problems.
     """
     qs = f"?{urlencode(params)}" if params else ""
@@ -200,10 +238,16 @@ def _http_get_json(path: str, params: Dict[str, str] | None = None) -> Dict:
         data = resp.read().decode("utf-8")
         return json.loads(data)
 
+
 def _http_post_json(url: str, payload: dict) -> dict:
-    """Send JSON via POST and return parsed JSON response (or an error dict)."""
+    """Send JSON via POST and return parsed JSON response"""
     data = json.dumps(payload).encode("utf-8")
-    req = Request(url, data=data, headers={"Content-Type": "application/json"}, method="POST")
+    req = Request(
+        url,
+        data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
     try:
         with urlopen(req, timeout=5) as resp:
             text = resp.read().decode("utf-8")
@@ -217,6 +261,8 @@ def _http_post_json(url: str, payload: dict) -> dict:
     except urllib.error.URLError as e:
         return {"error": "URLError", "message": str(e)}
 
+
+# ---------- Quotes microservice ----------
 
 def motivational_quote() -> None:
     """
@@ -232,7 +278,7 @@ def motivational_quote() -> None:
         print(" — " + data.get("author", "Unknown"))
         print(f"(category: {data.get('category','?')}, lang: {data.get('lang','?')})")
     except urllib.error.HTTPError as e:
-        # Handle contract errors like 404 NOT_FOUND or 400 UNSUPPORTED_PARAMETER
+        # Handles contract errors 404 NOT_FOUND or 400 UNSUPPORTED_PARAMETER
         try:
             err_json = json.loads(e.read().decode("utf-8"))
             msg = err_json.get("message", str(e))
@@ -246,10 +292,10 @@ def motivational_quote() -> None:
         print("\nUnexpected error while fetching quote:", e)
 
 
-# Menu main Loop
+# ---------- Overdue & At-Risk microservice ----------
 
 def show_overdue_items() -> None:
-    """Call the Overdue microservice and print any overdue items."""
+    """Call the Overdue microservice and print any overdue workouts."""
     workouts = load_all()
     items = _workouts_to_items(workouts)
 
@@ -266,14 +312,14 @@ def show_overdue_items() -> None:
     }
 
     result = _http_post_json(f"{OVERDUE_SERVICE_BASE}/overdue", payload)
-    print("\n=== Overdue Items (Microservice) ===")
+    print("\n=== Overdue Workouts (Microservice) ===")
 
     if "overdue" not in result:
         print("Error from microservice:", result)
         return
 
     if not result["overdue"]:
-        print("No overdue items found.")
+        print("No overdue workouts found. Nice work staying on track!")
         return
 
     for row in result["overdue"]:
@@ -284,7 +330,7 @@ def show_overdue_items() -> None:
 
 
 def show_at_risk_items() -> None:
-    """Call the At-Risk endpoint and print items due soon."""
+    """Call the At-Risk endpoint and print workouts due soon."""
     workouts = load_all()
     items = _workouts_to_items(workouts)
 
@@ -302,14 +348,14 @@ def show_at_risk_items() -> None:
     }
 
     result = _http_post_json(f"{OVERDUE_SERVICE_BASE}/atrisk", payload)
-    print("\n=== At-Risk Items (Microservice) ===")
+    print("\n=== At-Risk Workouts (Microservice) ===")
 
     if "atRisk" not in result:
         print("Error from microservice:", result)
         return
 
     if not result["atRisk"]:
-        print("No at-risk items found in the chosen window.")
+        print("No at-risk workouts in the next few days.")
         return
 
     for row in result["atRisk"]:
@@ -319,22 +365,25 @@ def show_at_risk_items() -> None:
         )
 
 
+# ---------- Weekly Summary microservice ----------
+
 def show_weekly_summary() -> None:
     """Call the Weekly Summary microservice and show stats for the current week."""
     workouts = load_all()
     items = _workouts_to_items(workouts)
 
-    payload = {
-        "items": [
-            {
-                "id": it["id"],
-                "completedAt": it["occurredAt"],
-                "durationMin": it["durationMin"],
-                "category": it["category"],
-            }
-            for it in items
-        ]
-    }
+    payload_items = [
+        {
+            "id": it["id"],
+            "completedAt": it["occurredAt"],
+            "durationMin": it["durationMin"],
+            "category": it["category"],
+        }
+        for it in items
+        if it["completed"] and it["occurredAt"]
+    ]
+
+    payload = {"items": payload_items}
 
     result = _http_post_json(f"{WEEKLY_SERVICE_BASE}/weekly-summary", payload)
     print("\n=== Weekly Progress Summary (Microservice) ===")
@@ -352,18 +401,18 @@ def show_weekly_summary() -> None:
         for cat, info in result["byCategory"].items():
             print(f"- {cat}: {info['count']} workouts, {info['durationMin']} minutes")
 
+
+
 def show_daily_agenda() -> None:
-    """Call Sheryll's Daily Agenda microservice and print the schedule."""
+    """Call Daily Agenda microservice and print the schedule."""
     workouts = load_all()
     if not workouts:
         print("\nNo workouts found. Add some workouts first.")
         return
 
-    # Ask user for date and workday times
     print("\n=== Generate Daily Agenda ===")
     date_str = input("Date for agenda (YYYY-MM-DD, blank = today): ").strip()
     if not date_str:
-        # derive today's date from system if left blank
         date_str = datetime.utcnow().strftime("%Y-%m-%d")
 
     workday_start = input("Workday start (HH:MM, default 09:00): ").strip() or "09:00"
@@ -390,7 +439,6 @@ def show_daily_agenda() -> None:
 
     result = _http_post_json(f"{DAILY_AGENDA_BASE}/agenda/generate", payload)
 
-    # Basic error handling
     if "blocks" not in result:
         print("\nError from Daily Agenda service:", result)
         return
@@ -414,17 +462,20 @@ def show_daily_agenda() -> None:
         print("\nAll tasks fit into the workday window!")
 
 
+# ---------- Menu main loop ----------
+
 def main_menu():
-    """Simple numbered menu to provide an explicit path (IH #6)."""
+    """Simple numbered menu to provide an explicit path."""
     while True:
+        print("\n=== Fitness Tracker ===")
         print("1) Add Workout")
         print("2) View History")
         print("3) Filter by Type")
-        print("4) Get Motivation")  # Small Pool microservice
-        print("5) Show Overdue Items")  # Big Pool microservice
-        print("6) Show At-Risk Items")  # Big Pool microservice
-        print("7) Weekly Progress Summary")  # Big Pool microservice
-        print("8) Generate Daily Agenda")  # Sheryll's microservice
+        print("4) Get Motivation")
+        print("5) Show Overdue Workouts")
+        print("6) Show At-Risk Workouts")
+        print("7) Weekly Progress Summary")
+        print("8) Generate Daily Agenda")
         print("9) Quit")
         choice = input("Choose an option (1-9): ").strip()
 
@@ -432,11 +483,11 @@ def main_menu():
             add_workout()
         elif choice == "2":
             items = load_all()
-            items.sort(key=lambda r: r["occurredAt"], reverse=True)
+            items.sort(key=lambda r: r.get("occurredAt", ""), reverse=True)
             view_history(items)
         elif choice == "3":
             items = load_all()
-            items.sort(key=lambda r: r["occurredAt"], reverse=True)
+            items.sort(key=lambda r: r.get("occurredAt", ""), reverse=True)
             filter_by_type(items)
         elif choice == "4":
             motivational_quote()
@@ -447,7 +498,7 @@ def main_menu():
         elif choice == "7":
             show_weekly_summary()
         elif choice == "8":
-            show_daily_agenda()  # NEW
+            show_daily_agenda()
         elif choice == "9":
             print("Goodbye!")
             break
@@ -457,3 +508,4 @@ def main_menu():
 
 if __name__ == "__main__":
     main_menu()
+

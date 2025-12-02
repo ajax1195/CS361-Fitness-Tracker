@@ -1,5 +1,37 @@
 [
   {
+    "occurredAt": "2025-12-02T01:01:34Z",
+    "dueDate": "2025-11-30",
+    "type": "Strength",
+    "durationMin": 30,
+    "calories": null,
+    "completed": false
+  },
+  {
+    "occurredAt": "2025-12-02T00:46:27Z",
+    "type": "Strength",
+    "durationMin": 30,
+    "calories": null
+  },
+  {
+    "occurredAt": "2025-12-02T00:45:34Z",
+    "type": "Running",
+    "durationMin": 30,
+    "calories": null
+  },
+  {
+    "occurredAt": "2025-12-02T00:45:25Z",
+    "type": "Yoga",
+    "durationMin": 25,
+    "calories": null
+  },
+  {
+    "occurredAt": "2025-12-02T00:40:44Z",
+    "type": "Strength",
+    "durationMin": 35,
+    "calories": null
+  },
+  {
     "occurredAt": "2025-12-01T04:41:22Z",
     "type": "Running",
     "durationMin": 30,
