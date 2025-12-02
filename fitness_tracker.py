@@ -10,9 +10,9 @@ import urllib.error
 DATA_FILE = "workouts.json"
 TYPES = ["Running", "Cycling", "Strength", "Yoga", "Other"]
 
-# Base URL for Motivational Quote Generator microservice
 QUOTE_SERVICE_BASE = "http://localhost:8000/v1"
-
+OVERDUE_SERVICE_BASE = "http://localhost:8101/v1"
+WEEKLY_SERVICE_BASE = "http://localhost:8102/v1"
 
 def load_all() -> List[Dict]:
     """Load all workouts from the JSON file (or return empty list)."""
@@ -35,6 +35,24 @@ def save_all(items: List[Dict]) -> None:
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(items, f, indent=2)
 
+def _workouts_to_items(workouts: List[Dict]) -> List[Dict]:
+    items: List[Dict] = []
+    for idx, w in enumerate(workouts, start=1):
+        occurred = w.get("occurredAt", "")
+        # derive YYYY-MM-DD from timestamp if possible
+        due_date = occurred[:10] if isinstance(occurred, str) and len(occurred) >= 10 else ""
+        items.append(
+            {
+                "id": str(idx),
+                "title": f"{w.get('type', 'Workout')} ({w.get('durationMin', 0)} min)",
+                "occurredAt": occurred,
+                "durationMin": w.get("durationMin", 0),
+                "category": w.get("type", "Other"),
+                "dueDate": due_date,
+                "completed": True,
+            }
+        )
+    return items
 
 # User Story 1: Add Workout
 
@@ -180,6 +198,23 @@ def _http_get_json(path: str, params: Dict[str, str] | None = None) -> Dict:
         data = resp.read().decode("utf-8")
         return json.loads(data)
 
+def _http_post_json(url: str, payload: dict) -> dict:
+    """Send JSON via POST and return parsed JSON response (or an error dict)."""
+    data = json.dumps(payload).encode("utf-8")
+    req = Request(url, data=data, headers={"Content-Type": "application/json"}, method="POST")
+    try:
+        with urlopen(req, timeout=5) as resp:
+            text = resp.read().decode("utf-8")
+            return json.loads(text)
+    except urllib.error.HTTPError as e:
+        try:
+            text = e.read().decode("utf-8")
+            return json.loads(text)
+        except Exception:
+            return {"error": "HTTPError", "message": str(e)}
+    except urllib.error.URLError as e:
+        return {"error": "URLError", "message": str(e)}
+
 
 def motivational_quote() -> None:
     """
@@ -211,6 +246,110 @@ def motivational_quote() -> None:
 
 # Menu main Loop
 
+def show_overdue_items() -> None:
+    """Call the Overdue microservice and print any overdue items."""
+    workouts = load_all()
+    items = _workouts_to_items(workouts)
+
+    payload = {
+        "items": [
+            {
+                "id": it["id"],
+                "title": it["title"],
+                "dueDate": it["dueDate"],
+                "completed": it["completed"],
+            }
+            for it in items
+        ]
+    }
+
+    result = _http_post_json(f"{OVERDUE_SERVICE_BASE}/overdue", payload)
+    print("\n=== Overdue Items (Microservice) ===")
+
+    if "overdue" not in result:
+        print("Error from microservice:", result)
+        return
+
+    if not result["overdue"]:
+        print("No overdue items found.")
+        return
+
+    for row in result["overdue"]:
+        print(
+            f"- {row['title']} (due {row['dueDate']}, "
+            f"{row['daysOverdue']} days overdue)"
+        )
+
+
+def show_at_risk_items() -> None:
+    """Call the At-Risk endpoint and print items due soon."""
+    workouts = load_all()
+    items = _workouts_to_items(workouts)
+
+    payload = {
+        "items": [
+            {
+                "id": it["id"],
+                "title": it["title"],
+                "dueDate": it["dueDate"],
+                "completed": it["completed"],
+            }
+            for it in items
+        ],
+        "riskWindowDays": 5,
+    }
+
+    result = _http_post_json(f"{OVERDUE_SERVICE_BASE}/atrisk", payload)
+    print("\n=== At-Risk Items (Microservice) ===")
+
+    if "atRisk" not in result:
+        print("Error from microservice:", result)
+        return
+
+    if not result["atRisk"]:
+        print("No at-risk items found in the chosen window.")
+        return
+
+    for row in result["atRisk"]:
+        print(
+            f"- {row['title']} (due {row['dueDate']}, "
+            f"{row['daysRemaining']} days remaining, risk={row['risk']})"
+        )
+
+
+def show_weekly_summary() -> None:
+    """Call the Weekly Summary microservice and show stats for the current week."""
+    workouts = load_all()
+    items = _workouts_to_items(workouts)
+
+    payload = {
+        "items": [
+            {
+                "id": it["id"],
+                "completedAt": it["occurredAt"],
+                "durationMin": it["durationMin"],
+                "category": it["category"],
+            }
+            for it in items
+        ]
+    }
+
+    result = _http_post_json(f"{WEEKLY_SERVICE_BASE}/weekly-summary", payload)
+    print("\n=== Weekly Progress Summary (Microservice) ===")
+
+    if "totalCompleted" not in result:
+        print("Error from microservice:", result)
+        return
+
+    print(f"Week: {result['weekStart']} to {result['weekEnd']}")
+    print(f"Total workouts completed: {result['totalCompleted']}")
+    print(f"Total minutes: {result['totalDurationMin']}")
+
+    if result.get("byCategory"):
+        print("\nBy category:")
+        for cat, info in result["byCategory"].items():
+            print(f"- {cat}: {info['count']} workouts, {info['durationMin']} minutes")
+
 def main_menu():
     """Simple numbered menu to provide an explicit path (IH #6)."""
     while True:
@@ -218,9 +357,12 @@ def main_menu():
         print("1) Add Workout")
         print("2) View History")
         print("3) Filter by Type")
-        print("4) Get Motivation")   # NEW
-        print("5) Quit")              # shifted
-        choice = input("Choose an option (1-5): ").strip()
+        print("4) Get Motivation")           # Small Pool microservice
+        print("5) Show Overdue Items")       # Big Pool microservice
+        print("6) Show At-Risk Items")       # Big Pool microservice (same service)
+        print("7) Weekly Progress Summary")  # Big Pool microservice
+        print("8) Quit")
+        choice = input("Choose an option (1-8): ").strip()
 
         if choice == "1":
             add_workout()
@@ -233,12 +375,18 @@ def main_menu():
             items.sort(key=lambda r: r["occurredAt"], reverse=True)
             filter_by_type(items)
         elif choice == "4":
-            motivational_quote()      # NEW
+            motivational_quote()
         elif choice == "5":
+            show_overdue_items()
+        elif choice == "6":
+            show_at_risk_items()
+        elif choice == "7":
+            show_weekly_summary()
+        elif choice == "8":
             print("Goodbye!")
             break
         else:
-            print("Please enter 1, 2, 3, 4, or 5.")
+            print("Please enter a number from 1 to 8.")
 
 
 if __name__ == "__main__":
