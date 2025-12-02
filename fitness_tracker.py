@@ -13,6 +13,8 @@ TYPES = ["Running", "Cycling", "Strength", "Yoga", "Other"]
 QUOTE_SERVICE_BASE = "http://localhost:8000/v1"
 OVERDUE_SERVICE_BASE = "http://localhost:8101/v1"
 WEEKLY_SERVICE_BASE = "http://localhost:8102/v1"
+DAILY_AGENDA_BASE = "http://localhost:5004"  # Sheryll's service
+
 
 def load_all() -> List[Dict]:
     """Load all workouts from the JSON file (or return empty list)."""
@@ -350,19 +352,81 @@ def show_weekly_summary() -> None:
         for cat, info in result["byCategory"].items():
             print(f"- {cat}: {info['count']} workouts, {info['durationMin']} minutes")
 
+def show_daily_agenda() -> None:
+    """Call Sheryll's Daily Agenda microservice and print the schedule."""
+    workouts = load_all()
+    if not workouts:
+        print("\nNo workouts found. Add some workouts first.")
+        return
+
+    # Ask user for date and workday times
+    print("\n=== Generate Daily Agenda ===")
+    date_str = input("Date for agenda (YYYY-MM-DD, blank = today): ").strip()
+    if not date_str:
+        # derive today's date from system if left blank
+        date_str = datetime.utcnow().strftime("%Y-%m-%d")
+
+    workday_start = input("Workday start (HH:MM, default 09:00): ").strip() or "09:00"
+    workday_end = input("Workday end (HH:MM, default 17:00): ").strip() or "17:00"
+
+    items = _workouts_to_items(workouts)
+
+    tasks = [
+        {
+            "id": it["id"],
+            "title": it["title"],
+            "duration_minutes": it["durationMin"],
+        }
+        for it in items
+        if it["durationMin"] > 0
+    ]
+
+    payload = {
+        "date": date_str,
+        "workday_start": workday_start,
+        "workday_end": workday_end,
+        "tasks": tasks,
+    }
+
+    result = _http_post_json(f"{DAILY_AGENDA_BASE}/agenda/generate", payload)
+
+    # Basic error handling
+    if "blocks" not in result:
+        print("\nError from Daily Agenda service:", result)
+        return
+
+    print(f"\n=== Daily Agenda for {result.get('date', date_str)} ===")
+    if not result["blocks"]:
+        print("No tasks could be scheduled in the workday window.")
+    else:
+        print("Scheduled blocks:")
+        for block in result["blocks"]:
+            print(
+                f"- {block['start']}–{block['end']}: {block['title']} "
+                f"(task {block['task_id']})"
+            )
+
+    if result.get("unscheduled"):
+        print("\nUnscheduled tasks (did not fit):")
+        for u in result["unscheduled"]:
+            print(f"- {u['title']} (task {u['task_id']})")
+    else:
+        print("\nAll tasks fit into the workday window!")
+
+
 def main_menu():
     """Simple numbered menu to provide an explicit path (IH #6)."""
     while True:
-        print("\n=== Fitness Tracker ===")
         print("1) Add Workout")
         print("2) View History")
         print("3) Filter by Type")
-        print("4) Get Motivation")           # Small Pool microservice
-        print("5) Show Overdue Items")       # Big Pool microservice
-        print("6) Show At-Risk Items")       # Big Pool microservice (same service)
+        print("4) Get Motivation")  # Small Pool microservice
+        print("5) Show Overdue Items")  # Big Pool microservice
+        print("6) Show At-Risk Items")  # Big Pool microservice
         print("7) Weekly Progress Summary")  # Big Pool microservice
-        print("8) Quit")
-        choice = input("Choose an option (1-8): ").strip()
+        print("8) Generate Daily Agenda")  # Sheryll's microservice
+        print("9) Quit")
+        choice = input("Choose an option (1-9): ").strip()
 
         if choice == "1":
             add_workout()
@@ -383,10 +447,12 @@ def main_menu():
         elif choice == "7":
             show_weekly_summary()
         elif choice == "8":
+            show_daily_agenda()  # NEW
+        elif choice == "9":
             print("Goodbye!")
             break
         else:
-            print("Please enter a number from 1 to 8.")
+            print("Please enter a number from 1 to 9.")
 
 
 if __name__ == "__main__":
